@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# coding=utf-8
 
 import wideq
 import json
@@ -9,6 +10,7 @@ import re
 import os.path
 import logging
 from typing import List
+from pprint import pprint
 
 STATE_FILE = 'wideq_state.json'
 LOGGER = logging.getLogger("wideq.example")
@@ -42,75 +44,26 @@ def mon(client, device_id):
     device = client.get_device(device_id)
     model = client.model_info(device)
 
-    with wideq.Monitor(client.session, device_id) as mon:
+    if device.type == wideq.DeviceType.WASHER:
+        print('Attempting to poll washer.')
+        washer = wideq.WasherDevice(client, device)
         try:
-            while True:
-                time.sleep(1)
-                print('Polling...')
-                data = mon.poll()
-                if data:
-                    try:
-                        res = model.decode_monitor(data)
-                    except ValueError:
-                        print('status data: {!r}'.format(data))
-                    else:
-                        for key, value in res.items():
-                            try:
-                                desc = model.value(key)
-                            except KeyError:
-                                print('- {}: {}'.format(key, value))
-                            if isinstance(desc, wideq.EnumValue):
-                                print('- {}: {}'.format(
-                                    key, desc.options.get(value, value)
-                                ))
-                            elif isinstance(desc, wideq.RangeValue):
-                                print('- {0}: {1} ({2.min}-{2.max})'.format(
-                                    key, value, desc,
-                                ))
+           washer.monitor_start()
+        except wideq.core.NotConnectedError:
+           print('Device not available.')
+           return
+
+        try:
+           while True:
+            time.sleep(1)
+            state = washer.poll()
+            if state:
+                print(state)
 
         except KeyboardInterrupt:
             pass
-
-
-def ac_mon(client, device_id):
-    """Monitor an AC/HVAC device, showing higher-level information about
-    its status such as its temperature and operation mode.
-    """
-
-    device = client.get_device(device_id)
-    if device.type != wideq.DeviceType.AC:
-        print('This is not an AC device.')
-        return
-
-    ac = wideq.ACDevice(client, device)
-
-    try:
-        ac.monitor_start()
-    except wideq.core.NotConnectedError:
-        print('Device not available.')
-        return
-
-    try:
-        while True:
-            time.sleep(1)
-            state = ac.poll()
-            if state:
-                print(
-                    '{1}; '
-                    '{0.mode.name}; '
-                    'cur {0.temp_cur_f}°F; '
-                    'cfg {0.temp_cfg_f}°F; '
-                    'fan speed {0.fan_speed.name}'
-                    .format(
-                        state,
-                        'on' if state.is_on else 'off'
-                    )
-                )
-
-    except KeyboardInterrupt:
-        pass
-    finally:
-        ac.monitor_stop()
+        finally:
+            washer.monitor_stop()
 
 
 class UserError(Exception):
@@ -130,66 +83,9 @@ def _force_device(client, device_id):
     return device
 
 
-def set_temp(client, device_id, temp):
-    """Set the configured temperature for an AC or refrigerator device."""
-
-    device = client.get_device(device_id)
-
-    if device.type == wideq.client.DeviceType.AC:
-        ac = wideq.ACDevice(client, _force_device(client, device_id))
-        ac.set_fahrenheit(int(temp))
-    elif device.type == wideq.client.DeviceType.REFRIGERATOR:
-        refrigerator = wideq.RefrigeratorDevice(
-            client, _force_device(client, device_id))
-        refrigerator.set_temp_refrigerator_c(int(temp))
-    else:
-        raise UserError(
-            'set-temp only suported for AC or refrigerator devices')
-
-
-def set_temp_freezer(client, device_id, temp):
-    """Set the configured freezer temperature for a refrigerator device."""
-
-    device = client.get_device(device_id)
-
-    if device.type == wideq.client.DeviceType.REFRIGERATOR:
-        refrigerator = wideq.RefrigeratorDevice(
-            client, _force_device(client, device_id))
-        refrigerator.set_temp_freezer_c(int(temp))
-    else:
-        raise UserError(
-            'set-temp-freezer only suported for refrigerator devices')
-
-
-def turn(client, device_id, on_off):
-    """Turn on/off an AC device."""
-
-    ac = wideq.ACDevice(client, _force_device(client, device_id))
-    ac.set_on(on_off == 'on')
-
-
-def ac_config(client, device_id):
-    ac = wideq.ACDevice(client, _force_device(client, device_id))
-    print(ac.supported_operations)
-    print(ac.supported_on_operation)
-    print(ac.get_filter_state())
-    print(ac.get_mfilter_state())
-    print(ac.get_energy_target())
-    print(ac.get_power(), " watts")
-    print(ac.get_outdoor_power(), " watts")
-    print(ac.get_volume())
-    print(ac.get_light())
-    print(ac.get_zones())
-
-
 EXAMPLE_COMMANDS = {
     'ls': ls,
     'mon': mon,
-    'ac-mon': ac_mon,
-    'set-temp': set_temp,
-    'set-temp-freezer': set_temp_freezer,
-    'turn': turn,
-    'ac-config': ac_config,
 }
 
 
