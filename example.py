@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # coding=utf-8
-
+import paho.mqtt.client as mqtt
+from jsonpath_ng import jsonpath, parse
 import wideq
 import json
 import time
@@ -13,8 +14,21 @@ from typing import List
 from pprint import pprint
 
 STATE_FILE = 'wideq_state.json'
-LOGGER = logging.getLogger("wideq.example")
+LOGGER = logging.getLogger("wideq.washer")
+MQTT_HOST = '192.168.1.144'
+MQTT_PORT = 1883
+washer_value_lookup = {}
 
+def on_connect(client, userdata, flags, rc):
+    print("Connected with result code "+str(rc))
+
+    # Subscribing in on_connect() means that if we lose the connection and
+    # reconnect then subscriptions will be renewed.
+    client.subscribe("$SYS/#")
+
+# The callback for when a PUBLISH message is received from the server.
+def on_message(client, userdata, msg):
+    print(msg.topic+" "+str(msg.payload))
 
 def authenticate(gateway):
     """Interactively authenticate the user via a browser to get an OAuth
@@ -40,6 +54,35 @@ def mon(client, device_id):
     """Monitor any device, displaying generic information about its
     status.
     """
+	#State
+	#Remain_Time_H
+	#Remain_Time_M
+	#Initial_Time_H
+	#Initial_Time_M
+	#Course
+	#Error
+	#Soil
+	#SpinSpeed
+	#WaterTemp
+	#RinseOption
+	#DryLevel
+	#Reserve_Time_H
+	#Reserve_Time_M
+	#Option1
+	#Option2
+	#Option3
+	#PreState
+	#SmartCourse
+	#TCLCount
+	#LoadItem
+	#CourseType
+	#Standby
+
+    mclient = mqtt.Client()
+    mclient.on_connect = on_connect
+    mclient.on_message = on_message
+
+    mclient.connect(MQTT_HOST, MQTT_PORT, 60)
 
     device = client.get_device(device_id)
     model = client.model_info(device)
@@ -58,12 +101,20 @@ def mon(client, device_id):
             time.sleep(1)
             state = washer.poll()
             if state:
-                print(state)
-
+                json_data=client.dump()
+                for key in state.keys(): 
+                    jsonpath_expression = parse('$.model_info..Value.'+key+'.option."'+state[key]+'"')
+                    match = jsonpath_expression.find(json_data)
+                    if(match):
+                       state[key] = match[0].value
+                       print(key+":"+ state[key] + "---id value is", match[0].value)
+                mclient.publish("stat/washer",str(state))
+                break
         except KeyboardInterrupt:
             pass
         finally:
             washer.monitor_stop()
+            mclient.disconnect()
 
 
 class UserError(Exception):
@@ -142,8 +193,7 @@ def example(country: str, language: str, verbose: bool,
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f)
         LOGGER.debug("Wrote state file '%s'", os.path.abspath(STATE_FILE))
-
-
+    
 def main() -> None:
     """The main command-line entry point.
     """
