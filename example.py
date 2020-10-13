@@ -106,8 +106,11 @@ def mon(client, device_id):
                     jsonpath_expression = parse('$.model_info..Value.'+key+'.option."'+state[key]+'"')
                     match = jsonpath_expression.find(json_data)
                     if(match):
-                       state[key] = match[0].value
-                       print(key+":"+ state[key] + "---id value is", match[0].value)
+                       if(key == 'SpinSpeed' or key == 'RinseOption' or key == 'Soil' or key == 'WaterTemp'):
+                            output_value=re.sub("@WM_[A-Z]+_[A-Z]+_","",match[0].value).replace("_W", "").replace("_", " ").title()
+                       else:
+                            output_value=re.sub("@WM_[A-Z]+_","",match[0].value).replace("_W", "").replace("_", " ").title()
+                       state[key] = output_value
                 mclient.publish("stat/washer",str(state))
                 break
         except KeyboardInterrupt:
